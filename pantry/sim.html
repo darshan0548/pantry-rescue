@@ -76,5 +76,5 @@ $("f").onsubmit=e=>{e.preventDefault();send($("q").value)};
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 if(!SR)$("mic").hidden=true;else{const rec=new SR();rec.lang="en-IN";rec.onresult=e=>send(e.results[0][0].transcript);$("mic").onclick=()=>rec.start()}
 bubble("Hi! Tell me what you bought, or tap an example below.","bot");
-frame.addEventListener("load",()=>{ready=false;refresh().catch(()=>{})});
+refresh().catch(()=>{});
 </script></body></html>
