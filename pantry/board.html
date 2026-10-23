@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pantry board</title>
+<style>
+:root{--bg:#f6f8f5;--ink:#14302b;--line:#cbd5cf;--mute:#5b6f69;--late:#b4233c;--soon:#b87408;--ok:#3f8f5b}
+@media(prefers-color-scheme:dark){:root{--bg:#10201d;--ink:#e8f1ec;--line:#2c4540;--mute:#9db3ac;--late:#ff7a8e;--soon:#f0b34a;--ok:#6fcf92}}
+*{box-sizing:border-box}body{margin:0;padding:18px;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,sans-serif}
+h1{margin:0;font:600 26px/1.2 Georgia,serif}.sub{margin:2px 0 14px;color:var(--mute)}
+.row{display:grid;grid-template-columns:minmax(80px,1fr) 2fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.name{text-transform:capitalize;font-weight:600}.track{height:10px;background:var(--line);border-radius:5px;overflow:hidden}
+.bar{height:100%;border-radius:5px;transition:width .5s}.when{font:600 15px Georgia,serif;text-align:right;min-width:78px}
+.late .bar{background:var(--late)}.late .when{color:var(--late)}.soon .bar{background:var(--soon)}.soon .when{color:var(--soon)}
+.ok .bar{background:var(--ok)}.ok .when{color:var(--ok)}.empty{padding:22px 0;color:var(--mute)}
+.foot{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);color:var(--mute)}
+@media(prefers-reduced-motion:reduce){.bar{transition:none}}
+</style></head><body>
+<h1 id="t">Pantry</h1><p class="sub" id="s">Loading your shelf…</p><div id="list"></div><div class="foot" id="f"></div>
+<script>
+const $=id=>document.getElementById(id);
+function when(d){return d<0?"expired":d===0?"today":d===1?"tomorrow":"in "+d+" days"}
+function render(d){
+  const items=d.items||[],urgent=items.filter(i=>i.days_left<=2).length;
+  $("t").textContent=urgent?urgent+" to use up soon":"Pantry looks good";
+  $("s").textContent=items.length+" item"+(items.length===1?"":"s")+" on your shelf";
+  const list=$("list");list.textContent="";
+  if(!items.length){const e=document.createElement("div");e.className="empty";e.textContent="Nothing here yet. Say \"I bought spinach and paneer\" to add items.";list.append(e)}
+  items.forEach(i=>{
+    const r=document.createElement("div");r.className="row "+(i.days_left<=1?"late":i.days_left<=3?"soon":"ok");
+    const n=document.createElement("div");n.className="name";n.textContent=i.name;
+    const t=document.createElement("div");t.className="track";const b=document.createElement("div");b.className="bar";
+    b.style.width=Math.max(6,Math.min(100,i.days_left/7*100))+"%";t.append(b);
+    const w=document.createElement("div");w.className="when";w.textContent=when(i.days_left);
+    r.append(n,t,w);list.append(r)});
+  const s=d.summary;$("f").textContent=s?"This week: "+s.saved+" used in time, "+s.wasted+" expired ("+s.rescue_rate+"% rescued)":"";
+}
+function parse(c){try{return JSON.parse((c||[]).find(x=>x.type==="text").text)}catch(e){return null}}
+addEventListener("message",e=>{const m=e.data;if(!m)return;
+  if(m.id===1)parent.postMessage({jsonrpc:"2.0",method:"ui/notifications/initialized"},"*");
+  if(m.method==="ui/notifications/tool-result"){const p=m.params||{};const d=p.structuredContent||parse(p.content);if(d)render(d)}});
+if(parent!==window)parent.postMessage({jsonrpc:"2.0",id:1,method:"ui/initialize",params:{protocolVersion:"2025-11-21",appInfo:{name:"pantry-board",version:"1.0.0"},appCapabilities:{}}},"*");
+else render({items:[{name:"spinach",days_left:1},{name:"paneer",days_left:2},{name:"tomato",days_left:4},{name:"onion",days_left:28}],summary:{saved:5,wasted:1,rescue_rate:83}});
+</script></body></html>

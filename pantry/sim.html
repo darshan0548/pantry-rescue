@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pantry Rescue · voice simulator</title>
+<style>
+:root{--bg:#e9efea;--panel:#fff;--ink:#14302b;--line:#cbd5cf;--mute:#5b6f69;--me:#dcebe2;--btn:#14302b;--btnink:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1715;--panel:#10201d;--ink:#e8f1ec;--line:#2c4540;--mute:#9db3ac;--me:#1b3a33;--btn:#6fcf92;--btnink:#0b1715}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,sans-serif}
+header{padding:16px 22px}h1{margin:0;font:600 24px Georgia,serif}header p{margin:2px 0 0;color:var(--mute);font-size:14px}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;padding:0 22px 22px}
+@media(max-width:820px){main{grid-template-columns:1fr}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:480px}
+h2{margin:0;padding:12px 16px;font:600 14px system-ui;color:var(--mute);border-bottom:1px solid var(--line)}
+#log{flex:1;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px;max-height:420px}
+.b{max-width:88%;padding:8px 12px;border-radius:10px;border:1px solid var(--line)}.me{align-self:flex-end;background:var(--me)}
+.hint{color:var(--mute);font-size:14px}
+form{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
+input[type=text]{flex:1;min-width:0;padding:10px 12px;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:8px}
+button{font:inherit;padding:10px 14px;border:0;border-radius:8px;background:var(--btn);color:var(--btnink);cursor:pointer}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--btn);outline-offset:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}.chips button{padding:5px 10px;font-size:14px}
+iframe{flex:1;width:100%;min-height:420px;border:0;border-radius:0 0 10px 10px}
+label{display:flex;align-items:center;gap:6px;padding:0 16px 12px;color:var(--mute);font-size:14px}
+</style></head><body>
+<header><h1>Pantry Rescue</h1><p>Voice simulator: a stand-in for an Alexa+ host. Every message is sent to the real MCP server at <code>/mcp</code>.</p></header>
+<main>
+<section><h2>Conversation</h2><div id="log" aria-live="polite"></div>
+<div class="chips" id="chips"></div>
+<label><input type="checkbox" id="spk" checked> Speak replies aloud</label>
+<form id="f"><input type="text" id="q" placeholder="Try: I bought spinach, paneer and tomatoes" autocomplete="off" aria-label="Say something">
+<button type="button" class="ghost" id="mic" aria-label="Speak">Mic</button><button type="submit">Send</button></form></section>
+<section><h2>Screen (shown on devices with a display)</h2><iframe id="screen" src="/sim/board" title="Pantry board"></iframe></section>
+</main>
+<script>
+const $=id=>document.getElementById(id),log=$("log"),frame=$("screen");
+const EXAMPLES=["I bought spinach, paneer, onions and tomatoes","What's about to go bad?","What should I cook tonight?","I used the paneer","How much food did I save this week?","Show my pantry"];
+EXAMPLES.forEach(t=>{const b=document.createElement("button");b.type="button";b.className="ghost";b.textContent=t;b.onclick=()=>send(t);$("chips").append(b)});
+function bubble(t,who){const d=document.createElement("div");d.className="b "+who;d.textContent=t;log.append(d);log.scrollTop=log.scrollHeight}
+const clean=s=>s.replace(/\b(some|the|a|an|my|of|all)\b/g,"").replace(/[.!?]/g,"").replace(/\s+/g," ").trim();
+const list=s=>s.split(/,|\band\b|&/).map(clean).filter(Boolean);
+function parseIntent(t){
+  t=t.toLowerCase().trim();
+  if(/\b(show|display|open|see)\b.*\b(pantry|fridge|board|shelf|groceries)\b/.test(t)||/what'?s in .*\b(pantry|fridge)\b/.test(t))return[["show_pantry_board",{}]];
+  let m=t.match(/\b(?:bought|got|brought(?: home)?|picked up|purchased|added)\s+(.+)/);
+  if(m){let rest=m[1],days=null;const d=rest.match(/\b(?:expires?|good|lasts?)\s+(?:in\s+|for\s+)?(\d+)\s+days?/);
+    if(d){days=+d[1];rest=rest.replace(d[0],"")}
+    const items=list(rest);if(items.length)return[["add_items",days===null?{items}:{items,days_until_expiry:days}]]}
+  m=t.match(/\b(?:used|cooked|ate|finished|threw out|threw away)\s+(?:up\s+)?(.+)/);
+  if(m){const items=list(m[1]);if(items.length)return items.map(i=>["mark_used",{item:i}])}
+  if(/\b(expire|expiring|go bad|going bad|spoil|use soon|eat soon)\b/.test(t))return[["list_expiring",{}]];
+  if(/\b(cook|make|dinner|lunch|recipe|meal|tonight)\b/.test(t))return[["suggest_meal",{}]];
+  if(/\b(saved|save|wasted|waste|week|summary|doing)\b/.test(t))return[["weekly_summary",{}]];
+  return null}
+async function mcp(tool,args){
+  const r=await fetch("/mcp",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json, text/event-stream"},
+    body:JSON.stringify({jsonrpc:"2.0",id:Date.now(),method:"tools/call",params:{name:tool,arguments:args}})});
+  if(!r.ok)throw new Error("Server said "+r.status);const j=await r.json();
+  if(j.error)throw new Error(j.error.message);return j.result.structuredContent||{}}
+let ready=false,pending=null;
+function pushBoard(d){pending=d;if(ready)frame.contentWindow.postMessage({jsonrpc:"2.0",method:"ui/notifications/tool-result",params:{structuredContent:d}},"*")}
+addEventListener("message",e=>{if(e.source!==frame.contentWindow)return;const m=e.data||{};
+  if(m.method==="ui/initialize")frame.contentWindow.postMessage({jsonrpc:"2.0",id:m.id,result:{protocolVersion:"2025-11-21",hostInfo:{name:"pantry-sim",version:"1.0.0"},hostCapabilities:{}}},"*");
+  if(m.method==="ui/notifications/initialized"){ready=true;if(pending)pushBoard(pending)}});
+const refresh=async()=>pushBoard(await mcp("show_pantry_board",{}));
+function speak(t){if($("spk").checked&&window.speechSynthesis){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t))}}
+async function send(text){
+  text=text.trim();if(!text)return;bubble(text,"me");$("q").value="";
+  const calls=parseIntent(text);
+  if(!calls){const m="Sorry, I can add groceries, tell you what is expiring, suggest a meal, mark items used, or show your pantry.";bubble(m,"bot");speak(m);return}
+  try{const said=[];let last=null;
+    for(const[tool,args]of calls){last=await mcp(tool,args);said.push(last.speech)}
+    const msg=said.join(" ");bubble(msg,"bot");speak(msg);
+    if(calls[0][0]==="show_pantry_board")pushBoard(last);else await refresh();
+  }catch(err){bubble("Something went wrong: "+err.message,"bot")}}
+$("f").onsubmit=e=>{e.preventDefault();send($("q").value)};
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(!SR)$("mic").hidden=true;else{const rec=new SR();rec.lang="en-IN";rec.onresult=e=>send(e.results[0][0].transcript);$("mic").onclick=()=>rec.start()}
+bubble("Hi! Tell me what you bought, or tap an example below.","bot");
+frame.addEventListener("load",()=>{ready=false;refresh().catch(()=>{})});
+</script></body></html>
